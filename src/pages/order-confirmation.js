@@ -103,7 +103,7 @@ const OrderConfirmation = () => {
         <div className="flex flex-col items-center justify-center h-[70vh]">
           <div className="text-center">
             <h2 className="text-xl font-bold mb-2">Order not found</h2>
-            <p className="text-gray-600 mb-6">We couldn't find the order you're looking for.</p>
+            <p className="text-gray-600 mb-6">We couldn&apos;t find the order you&apos;re looking for.</p>
             <Button 
               color="primary"
               onClick={() => router.push('/')}
