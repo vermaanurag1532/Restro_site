@@ -1,15 +1,17 @@
 import axios from 'axios';
 import Cookies from 'js-cookie';
 
-const API_URL = 'http://65.0.109.178:3000';
+// Prioritize environment variable, fallback to HTTPS
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://65.0.109.178:3000';
 
-// Create axios instance with interceptors for better error handling
+// Create axios instance with enhanced configuration
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
   timeout: 10000, // 10 second timeout
+  withCredentials: true, // Important for CORS and cookie handling
 });
 
 // Request interceptor for adding auth token if available
@@ -17,8 +19,14 @@ api.interceptors.request.use(
   (config) => {
     const customer = Cookies.get('customer');
     if (customer) {
-      // You could add auth token here if your API needs it
-      // config.headers.Authorization = `Bearer ${JSON.parse(customer).token}`;
+      try {
+        const customerData = JSON.parse(customer);
+        // Optional: Add authorization if your backend requires it
+        // Uncomment and modify as needed
+        // config.headers.Authorization = `Bearer ${customerData.token}`;
+      } catch (error) {
+        console.error('Error parsing customer cookie', error);
+      }
     }
     return config;
   },
@@ -32,8 +40,12 @@ api.interceptors.response.use(
     const errorMessage = error.response?.data?.message || 'Something went wrong';
     const statusCode = error.response?.status || 500;
     
-    // You could implement logging here
-    console.error(`API Error (${statusCode}): ${errorMessage}`);
+    // Enhanced error logging
+    console.error(`API Error (${statusCode}): ${errorMessage}`, {
+      url: error.config?.url,
+      method: error.config?.method,
+      data: error.config?.data
+    });
     
     return Promise.reject({
       message: errorMessage,
@@ -48,7 +60,12 @@ export const login = async (email, password) => {
   try {
     const response = await api.post('/Customer/login', { email, password });
     if (response.data) {
-      Cookies.set('customer', JSON.stringify(response.data), { expires: 7 });
+      // Store customer data securely with additional options
+      Cookies.set('customer', JSON.stringify(response.data), { 
+        expires: 7, 
+        secure: process.env.NODE_ENV === 'production', // Only send cookie over HTTPS in production
+        sameSite: 'strict' // Protect against CSRF
+      });
     }
     return response.data;
   } catch (error) {
@@ -57,7 +74,10 @@ export const login = async (email, password) => {
 };
 
 export const logout = () => {
-  Cookies.remove('customer');
+  Cookies.remove('customer', { 
+    secure: process.env.NODE_ENV === 'production', 
+    sameSite: 'strict' 
+  });
   return true;
 };
 
@@ -136,13 +156,6 @@ export const placeOrder = async (orderData) => {
   }
 };
 
-/**
- * Places an order with the current cart items
- * @param {Array} cartItems - Array of cart items with dish and quantity
- * @param {string} tableNo - Table number for dine-in orders
- * @param {string} customerId - Customer ID for the order
- * @returns {Promise} - Response from the API
- */
 export const placeOrderFromCart = async (cartItems, tableNo, customerId) => {
   try {
     if (!cartItems || cartItems.length === 0) {
