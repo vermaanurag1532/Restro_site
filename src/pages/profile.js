@@ -353,7 +353,7 @@ const Profile = () => {
                         />
                       </svg>
                       <h3 className="text-lg font-semibold mb-2">No orders yet</h3>
-                      <p className="text-gray-500 mb-4">You haven't placed any orders yet.</p>
+                      <p className="text-gray-500 mb-4">You have not placed any orders yet.</p>
                       <Button
                         color="primary"
                         onClick={() => router.push('/')}
@@ -520,7 +520,7 @@ const Profile = () => {
                       />
                     </svg>
                     <h3 className="text-lg font-semibold mb-2">No addresses saved</h3>
-                    <p className="text-gray-500 mb-4">You haven't saved any delivery addresses yet.</p>
+                    <p className="text-gray-500 mb-4">You have not saved any delivery addresses yet.</p>
                     <Button
                       color="primary"
                       onClick={() => router.push('/add-address')}
