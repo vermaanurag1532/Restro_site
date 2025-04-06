@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { 
@@ -12,13 +12,16 @@ import {
 } from '@nextui-org/react';
 import { motion } from 'framer-motion';
 import Layout from '../components/Layout';
-import { login } from '../services/api';
+import { login, getCurrentCustomer } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { FaEnvelope, FaLock, FaGoogle, FaFacebook } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaGoogle, FaFacebook, FaChair } from 'react-icons/fa';
+import api from '../services/api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [tableNo, setTableNo] = useState('');
+  const [availableTables, setAvailableTables] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -26,19 +29,50 @@ const Login = () => {
   const { login: authLogin } = useAuth();
   const { redirect } = router.query;
 
+  // No need to fetch available tables since we're using manual input
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!email || !password) {
-      setError('Please fill in all fields');
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    if (!tableNo) {
+      setError('Please select a table number');
       return;
     }
     
     try {
       setLoading(true);
       setError('');
-      const data = await login(email, password);
-      authLogin(data);
+      
+      // First, login the customer
+      const customerData = await login(email, password);
+      
+      // Then, assign the table to the customer
+      try {
+        await api.post('/Table', {
+          tableNo: parseInt(tableNo),
+          customerId: customerData['Customer Id']
+        });
+      } catch (tableError) {
+        // If table already exists, try to update it instead
+        try {
+          await api.put(`/Table/${tableNo}`, {
+            customerId: customerData['Customer Id']
+          });
+        } catch (updateError) {
+          console.error('Error updating table:', updateError);
+          // Continue with login even if table assignment fails
+        }
+      }
+      
+      // Complete the login process
+      authLogin(customerData);
+      
+      // Navigate to the redirect URL or home page
       router.push(redirect || '/');
     } catch (error) {
       setError(error.message || 'Invalid email or password');
@@ -291,6 +325,28 @@ const Login = () => {
                       size="lg"
                       radius="lg"
                       isRequired
+                      classNames={{
+                        inputWrapper: "border-gray-300 hover:border-primary focus:border-primary group-focus:border-primary transition-all duration-150 shadow-sm",
+                        input: "text-base pl-1",
+                      }}
+                    />
+                  </motion.div>
+                  
+                  {/* Added Table Number Input */}
+                  <motion.div variants={itemVariants}>
+                    <Input
+                      type="number"
+                      placeholder="Enter your table number"
+                      value={tableNo}
+                      onChange={(e) => setTableNo(e.target.value)}
+                      variant="bordered"
+                      size="lg"
+                      radius="lg"
+                      min="1"
+                      isRequired
+                      startContent={
+                        <FaChair className="text-primary-500/70 text-sm flex-shrink-0 mr-2" />
+                      }
                       classNames={{
                         inputWrapper: "border-gray-300 hover:border-primary focus:border-primary group-focus:border-primary transition-all duration-150 shadow-sm",
                         input: "text-base pl-1",

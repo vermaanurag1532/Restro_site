@@ -1,36 +1,182 @@
-import { Card, CardHeader, CardBody, CardFooter, Divider, Button, Image, Input } from '@nextui-org/react';
+import { useState, useEffect, useRef } from 'react';
+import { Card, CardHeader, CardBody, CardFooter, Divider, Button, Image, Chip } from '@nextui-org/react';
 import Layout from '../components/Layout';
 import { useCart } from '../context/CartContext';
 import { useRouter } from 'next/router';
 import { PlusIcon, MinusIcon } from '../components/Icons';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
-import { placeOrderFromCart, getCurrentCustomer } from '../services/api';
+import { 
+  placeOrderFromCart, 
+  getCurrentCustomer, 
+  fetchTablesByCustomerId,
+  getLatestCustomerOrder,
+  addItemsToOrder,
+  processPayment,
+  startOrderStatusPolling,
+  checkOrderStatus,
+  fetchOrderById
+} from '../services/api';
 
 const Cart = () => {
-  const { cart, removeFromCart, updateQuantity, getTotal, clearCart } = useCart();
+  const { 
+    cart, 
+    removeFromCart, 
+    updateQuantity, 
+    getTotal, 
+    clearCart,
+    currentOrderId,
+    setCurrentOrder,
+    orderStatus,
+    updateOrderStatus
+  } = useCart();
+  
   const router = useRouter();
   const [orderTotal, setOrderTotal] = useState(0);
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [orderError, setOrderError] = useState('');
-  const [orderSuccess, setOrderSuccess] = useState(false);
   const [tableNumber, setTableNumber] = useState('');
-  const [tableNumberError, setTableNumberError] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentOrder, setCurrentOrderData] = useState(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
   
+  // Fixed: Using motion(Card) instead of motion.create(Card)
+  const MotionCard = motion(Card);
+  
+  // Calculate total
   useEffect(() => {
     if (cart.length > 0) {
       setOrderTotal(getTotal());
     }
   }, [cart, getTotal]);
   
-  const handlePlaceOrder = async () => {
+  // Initial data load - get table and check for open orders
+  useEffect(() => {
+    let isActive = true;
+    let stopPolling = null;
+    
+    // Prevent multiple initializations
+    if (hasInitialized) return;
+    
+    const initializeCart = async () => {
+      try {
+        setIsLoading(true);
+        const customer = getCurrentCustomer();
+        
+        if (!customer) {
+          if (isActive) {
+            setIsLoading(false);
+            setHasInitialized(true);
+          }
+          return;
+        }
+        
+        // Get customer's table - only once
+        try {
+          const tables = await fetchTablesByCustomerId(customer['Customer Id']);
+          if (tables && tables.length > 0 && isActive) {
+            setTableNumber(tables[0]['Table No'].toString());
+          }
+        } catch (tableError) {
+          console.error("Error fetching table:", tableError);
+        }
+        
+        // If we have a current order ID stored, fetch that specific order
+        if (currentOrderId) {
+          try {
+            const order = await fetchOrderById(currentOrderId);
+            if (order && !order['Payment Status'] && isActive) {
+              setCurrentOrderData(order);
+              
+              // Check order status
+              const status = await checkOrderStatus(order['Order Id']);
+              if (isActive) {
+                updateOrderStatus({
+                  isServed: Boolean(status.isServed),
+                  isPaid: Boolean(status.isPaid)
+                });
+                
+                // Start polling for status changes
+                stopPolling = startOrderStatusPolling(
+                  order['Order Id'],
+                  (status) => {
+                    if (isActive) {
+                      updateOrderStatus({
+                        isServed: Boolean(status.isServed),
+                        isPaid: Boolean(status.isPaid)
+                      });
+                    }
+                  },
+                  15000 // Check every 15 seconds
+                );
+              }
+            }
+          } catch (error) {
+            console.error("Error fetching stored order:", error);
+            // Clear invalid order ID
+            if (isActive) setCurrentOrder(null);
+          }
+        } else {
+          // Check for existing unpaid orders if no current order is stored
+          try {
+            const latestOrder = await getLatestCustomerOrder(customer['Customer Id']);
+            if (latestOrder && !latestOrder['Payment Status'] && isActive) {
+              setCurrentOrderData(latestOrder);
+              setCurrentOrder(latestOrder['Order Id']);
+              
+              // Check status
+              const status = await checkOrderStatus(latestOrder['Order Id']);
+              if (isActive) {
+                updateOrderStatus({
+                  isServed: Boolean(status.isServed),
+                  isPaid: Boolean(status.isPaid)
+                });
+                
+                // Start polling for status changes
+                stopPolling = startOrderStatusPolling(
+                  latestOrder['Order Id'],
+                  (status) => {
+                    if (isActive) {
+                      updateOrderStatus({
+                        isServed: Boolean(status.isServed),
+                        isPaid: Boolean(status.isPaid)
+                      });
+                    }
+                  },
+                  15000 // Check every 15 seconds
+                );
+              }
+            }
+          } catch (error) {
+            console.error("Error fetching latest order:", error);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing cart:', error);
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+          setHasInitialized(true);
+        }
+      }
+    };
+    
+    initializeCart();
+    
+    return () => {
+      isActive = false;
+      if (stopPolling) stopPolling();
+    };
+  }, [currentOrderId, setCurrentOrder, updateOrderStatus, hasInitialized]);
+  
+  // Handle placing a new order OR adding to existing order
+  const handleAction = async () => {
     try {
       setOrderError('');
-      setTableNumberError('');
       
-      // Validate table number
-      if (!tableNumber.trim()) {
-        setTableNumberError('Please enter your table number');
+      // Check if we have a table number
+      if (!tableNumber) {
+        setOrderError('Table number not found. Please contact staff for assistance.');
         return;
       }
       
@@ -43,31 +189,103 @@ const Cart = () => {
       
       setIsPlacingOrder(true);
       
-      // Call API to place order
-      const result = await placeOrderFromCart(
-        cart, 
-        tableNumber.trim(),
-        customer['Customer Id']
-      );
-      
-      // Show success message and clear cart
-      setOrderSuccess(true);
-      clearCart();
-      
-      // Redirect to order confirmation after a delay
-      setTimeout(() => {
-        router.push(`/order-confirmation?id=${result['Order Id']}`);
-      }, 2000);
+      // If this is a new order, create one
+      if (!currentOrderId) {
+        try {
+          // Place a new order
+          const newOrder = await placeOrderFromCart(
+            cart, 
+            tableNumber,
+            customer['Customer Id']
+          );
+          
+          if (newOrder && newOrder['Order Id']) {
+            setCurrentOrderData(newOrder);
+            setCurrentOrder(newOrder['Order Id']);
+            updateOrderStatus({
+              isServed: false,
+              isPaid: false
+            });
+          } else {
+            throw new Error("Failed to create order");
+          }
+        } catch (error) {
+          console.error('Error placing new order:', error);
+          setOrderError(error.message || 'Failed to place order. Please try again.');
+          setIsPlacingOrder(false);
+          return;
+        }
+      } 
+      // If we have an existing order, add items to it
+      else {
+        try {
+          const updatedOrder = await addItemsToOrder(
+            currentOrderId,
+            cart
+          );
+          
+          if (updatedOrder) {
+            setCurrentOrderData(updatedOrder);
+            updateOrderStatus({
+              ...orderStatus,
+              isServed: false // Reset serving status when adding items
+            });
+            
+            // Clear cart after successfully adding items to the order
+            clearCart();
+          } else {
+            throw new Error("Failed to update order");
+          }
+        } catch (error) {
+          console.error('Error adding to existing order:', error);
+          setOrderError(error.message || 'Failed to update order. Please try again.');
+          setIsPlacingOrder(false);
+          return;
+        }
+      }
       
     } catch (error) {
-      console.error('Error placing order:', error);
-      setOrderError(error.message || 'Failed to place order. Please try again.');
+      console.error('Error handling action:', error);
+      setOrderError(error.message || 'Failed to complete action. Please try again.');
     } finally {
       setIsPlacingOrder(false);
     }
   };
   
-  const MotionCard = motion(Card);
+  // Handle payment processing
+  const handleProcessPayment = async () => {
+    try {
+      setOrderError('');
+      
+      if (!currentOrderId) {
+        setOrderError('No active order found');
+        return;
+      }
+      
+      setIsProcessingPayment(true);
+      
+      // Call the fixed processPayment function that only updates payment status
+      await processPayment(currentOrderId);
+      
+      // Update order status to paid
+      updateOrderStatus({
+        ...orderStatus,
+        isPaid: true
+      });
+      
+      // Clear cart after successful payment
+      clearCart();
+      
+      // Navigate to payment confirmation
+      router.push(`/payment-confirmation?id=${currentOrderId}`);
+      
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      setOrderError(error.message || 'Failed to process payment. Please try again.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   return (
     <Layout title="Cart">
@@ -105,9 +323,26 @@ const Cart = () => {
             </button>
           </motion.div>
           <h1 className="text-2xl font-bold">Your Cart</h1>
+          
+          {/* Order Status Indicator */}
+          {currentOrderId && (
+            <div className="ml-auto">
+              <Chip 
+                color={orderStatus.isPaid ? "success" : orderStatus.isServed ? "warning" : "primary"}
+                variant="bordered"
+                className="ml-2"
+              >
+                {orderStatus.isPaid 
+                  ? "Paid" 
+                  : orderStatus.isServed 
+                    ? "Ready for Payment" 
+                    : "Preparing"}
+              </Chip>
+            </div>
+          )}
         </motion.div>
         
-        {cart.length === 0 ? (
+        {(cart.length === 0 && !currentOrderId) || (orderStatus.isPaid) ? (
           <motion.div 
             className="flex flex-col items-center justify-center h-[60vh]"
             initial={{ opacity: 0 }}
@@ -149,8 +384,8 @@ const Cart = () => {
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.3 }}
             >
-              {orderSuccess 
-                ? "Your order has been placed successfully!" 
+              {orderStatus.isPaid 
+                ? "Your order has been paid. Thank you!" 
                 : "Your cart is empty"}
             </motion.p>
             <motion.div
@@ -161,10 +396,9 @@ const Cart = () => {
               whileTap={{ scale: 0.95 }}
             >
               <Button 
-                color="primary" 
                 onClick={() => router.push('/')}
                 size="lg"
-                className="rounded-full px-8 font-medium shadow-lg"
+                className="rounded-full px-8 font-medium shadow-lg bg-gray-800 text-white"
               >
                 Browse Menu
               </Button>
@@ -173,119 +407,157 @@ const Cart = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-4">
-              <motion.div 
-                className="bg-white p-3 rounded-lg shadow-sm border border-gray-100"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <div className="flex items-center justify-between border-b pb-3 mb-2">
-                  <div className="flex items-center gap-2">
-                    <svg 
-                      width="20" 
-                      height="20" 
-                      viewBox="0 0 24 24" 
-                      fill="none" 
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="text-orange-500"
+              {/* Current Order Section */}
+              {currentOrderId && currentOrder && (
+                <motion.div 
+                  className="bg-white p-4 rounded-lg shadow-sm border border-gray-200"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-bold">Current Order</h2>
+                    <Chip 
+                      color={orderStatus.isServed ? "success" : "warning"}
+                      size="sm"
                     >
-                      <path 
-                        d="M17 20.5H7c-3 0-5-1.5-5-5v-7c0-3.5 2-5 5-5h10c3 0 5 1.5 5 5v7c0 3.5-2 5-5 5Z" 
-                        stroke="currentColor" 
-                        strokeWidth="1.5" 
-                        strokeMiterlimit="10" 
-                        strokeLinecap="round" 
-                        strokeLinejoin="round" 
-                      />
-                      <path 
-                        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" 
-                        stroke="currentColor" 
-                        strokeWidth="1.5" 
-                        strokeMiterlimit="10" 
-                        strokeLinecap="round" 
-                        strokeLinejoin="round" 
-                      />
-                      <path 
-                        d="M8.5 6H8M16 6h-1" 
-                        stroke="currentColor" 
-                        strokeWidth="2" 
-                        strokeMiterlimit="10" 
-                        strokeLinecap="round" 
-                        strokeLinejoin="round" 
-                      />
-                    </svg>
-                    <span className="font-bold">RedLinear Restro</span>
+                      {orderStatus.isServed ? "Food Served" : "Preparing"}
+                    </Chip>
                   </div>
-                  <span className="text-sm text-gray-500">{cart.length} items</span>
-                </div>
-                
-                <AnimatePresence>
-                  {cart.map((item, index) => (
-                    <motion.div 
-                      key={item.dish['Dish Id']} 
-                      className="py-3 border-b border-dashed border-gray-200 last:border-none"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0, overflow: 'hidden' }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      layout
-                    >
-                      <div className="flex items-start">
-                        <div className="flex-shrink-0 h-16 w-16 bg-gray-100 rounded-md overflow-hidden mr-3">
-                          <Image
-                            alt={item.dish.Name}
-                            className="object-cover h-full w-full"
-                            src={`https://via.placeholder.com/150?text=${encodeURIComponent(item.dish.Name)}`}
-                          />
-                        </div>
-                        <div className="flex-grow">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h3 className="text-base font-medium">{item.dish.Name}</h3>
-                              <p className="text-primary-600 font-bold mt-1">₹{item.dish.Price}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-bold">₹{item.dish.Price * item.quantity}</p>
+                  
+                  <div className="space-y-2 mb-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Order ID:</span>
+                      <span className="font-medium">{currentOrder['Order Id']}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Table:</span>
+                      <span className="font-medium">{currentOrder['Table No']}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Amount:</span>
+                      <span className="font-medium">₹{currentOrder.Amount || 0}</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+              
+              {/* Cart Items Section */}
+              {cart.length > 0 && (
+                <motion.div 
+                  className="bg-white p-3 rounded-lg shadow-sm border border-gray-100"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                >
+                  <div className="flex items-center justify-between border-b pb-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="text-orange-500"
+                      >
+                        <path 
+                          d="M17 20.5H7c-3 0-5-1.5-5-5v-7c0-3.5 2-5 5-5h10c3 0 5 1.5 5 5v7c0 3.5-2 5-5 5Z" 
+                          stroke="currentColor" 
+                          strokeWidth="1.5" 
+                          strokeMiterlimit="10" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                        />
+                        <path 
+                          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" 
+                          stroke="currentColor" 
+                          strokeWidth="1.5" 
+                          strokeMiterlimit="10" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                        />
+                        <path 
+                          d="M8.5 6H8M16 6h-1" 
+                          stroke="currentColor" 
+                          strokeWidth="2" 
+                          strokeMiterlimit="10" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                        />
+                      </svg>
+                      <span className="font-bold">RedLinear Restro</span>
+                    </div>
+                    <span className="text-sm text-gray-500">{cart.length} items</span>
+                  </div>
+                  
+                  <AnimatePresence>
+                    {cart.map((item, index) => (
+                      <motion.div 
+                        key={item.dish['Dish Id']} 
+                        className="py-3 border-b border-dashed border-gray-200 last:border-none"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0, overflow: 'hidden' }}
+                        transition={{ duration: 0.3, delay: index * 0.05 }}
+                        layout
+                      >
+                        <div className="flex items-start">
+                          <div className="flex-shrink-0 h-16 w-16 bg-gray-100 rounded-md overflow-hidden mr-3">
+                            <Image
+                              alt={item.dish.Name}
+                              className="object-cover h-full w-full"
+                              src={`https://via.placeholder.com/150?text=${encodeURIComponent(item.dish.Name)}`}
+                            />
+                          </div>
+                          <div className="flex-grow">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="text-base font-medium">{item.dish.Name}</h3>
+                                <p className="text-primary-600 font-bold mt-1">₹{item.dish.Price}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-bold">₹{item.dish.Price * item.quantity}</p>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                      
-                      <div className="flex items-center justify-between mt-3">
-                        <motion.div 
-                          className="flex items-center bg-white border border-gray-200 rounded-lg shadow-sm"
-                          whileHover={{ boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)" }}
-                        >
-                          <motion.button 
-                            className="px-2 py-1 text-gray-500"
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity - 1)}
-                            disabled={item.quantity <= 1}
+                        
+                        <div className="flex items-center justify-between mt-3">
+                          <motion.div 
+                            className="flex items-center bg-white border border-gray-200 rounded-lg shadow-sm"
+                            whileHover={{ boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)" }}
                           >
-                            <MinusIcon size={16} />
-                          </motion.button>
-                          <span className="w-8 text-center font-medium">{item.quantity}</span>
+                            <motion.button 
+                              className="px-2 py-1 text-gray-500"
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity - 1)}
+                              disabled={item.quantity <= 1}
+                            >
+                              <MinusIcon />
+                            </motion.button>
+                            <span className="w-8 text-center font-medium">{item.quantity}</span>
+                            <motion.button 
+                              className="px-2 py-1 text-gray-700"
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity + 1)}
+                            >
+                              <PlusIcon />
+                            </motion.button>
+                          </motion.div>
                           <motion.button 
-                            className="px-2 py-1 text-gray-700"
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity + 1)}
+                            className="text-sm text-red-500 font-medium"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => removeFromCart(item.dish['Dish Id'])}
                           >
-                            <PlusIcon size={16} />
+                            Remove
                           </motion.button>
-                        </motion.div>
-                        <motion.button 
-                          className="text-sm text-red-500 font-medium"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => removeFromCart(item.dish['Dish Id'])}
-                        >
-                          Remove
-                        </motion.button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </motion.div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </motion.div>
+              )}
             </div>
 
             <motion.div 
@@ -331,21 +603,36 @@ const Cart = () => {
                     
                     <Divider className="my-2" />
                     
-                    {/* Table Number Input */}
-                    <div className="mt-4">
-                      <Input
-                        placeholder="Enter your table number"
-                        value={tableNumber}
-                        onChange={(e) => {
-                          setTableNumber(e.target.value);
-                          setTableNumberError('');
-                        }}
-                        variant="bordered"
-                        color={tableNumberError ? "danger" : "primary"}
-                        errorMessage={tableNumberError}
-                        required
-                      />
+                    {/* Table Information - Not loading repeatedly now */}
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-gray-600">Your Table</span>
+                      <span className="font-medium">
+                        {isLoading ? (
+                          <motion.div
+                            animate={{ 
+                              opacity: [0.5, 1, 0.5] 
+                            }}
+                            transition={{ repeat: Infinity, duration: 1.5 }}
+                            className="bg-gray-200 h-6 w-12 rounded"
+                          />
+                        ) : tableNumber ? (
+                          `Table ${tableNumber}`
+                        ) : (
+                          <span className="text-red-500">Not found</span>
+                        )}
+                      </span>
                     </div>
+                    
+                    {/* Order Status Info */}
+                    {currentOrderId && currentOrder && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded-lg">
+                        <div className="text-sm font-medium mb-1">Order Status</div>
+                        <div className="flex items-center space-x-2">
+                          <div className={`w-3 h-3 rounded-full ${orderStatus.isServed ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+                          <span className="text-sm">{orderStatus.isServed ? 'Food Served' : 'Preparing'}</span>
+                        </div>
+                      </div>
+                    )}
                     
                     {/* Order Error Message */}
                     {orderError && (
@@ -359,31 +646,30 @@ const Cart = () => {
                     )}
                   </div>
                 </CardBody>
-                <CardFooter>
-                  <motion.div className="w-full"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
+                <CardFooter className="flex flex-col gap-2">
+                  {/* Main Action Button - for PLACE ORDER or ADD TO ORDER */}
+                  {cart.length > 0 && !orderStatus.isServed && (
                     <Button 
-                      color="success" 
-                      className="w-full py-6 font-bold text-base rounded-lg bg-green-500"
-                      onClick={handlePlaceOrder}
-                      disabled={isPlacingOrder || cart.length === 0}
+                      className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
+                      onClick={handleAction}
+                      disabled={isPlacingOrder || cart.length === 0 || isLoading || !tableNumber}
+                      isLoading={isPlacingOrder}
                     >
-                      {isPlacingOrder ? (
-                        <motion.div
-                          animate={{
-                            scale: [1, 1.2, 1],
-                          }}
-                          transition={{ repeat: Infinity, duration: 0.6 }}
-                        >
-                          Placing Order...
-                        </motion.div>
-                      ) : (
-                        "PLACE ORDER"
-                      )}
+                      {!currentOrderId ? "PLACE ORDER" : "ADD TO ORDER"}
                     </Button>
-                  </motion.div>
+                  )}
+                  
+                  {/* Payment Button - only shows when food is served */}
+                  {orderStatus.isServed && !orderStatus.isPaid && (
+                    <Button 
+                      className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
+                      onClick={handleProcessPayment}
+                      disabled={isProcessingPayment}
+                      isLoading={isProcessingPayment}
+                    >
+                      PROCESS PAYMENT
+                    </Button>
+                  )}
                 </CardFooter>
               </MotionCard>
               
@@ -402,7 +688,15 @@ const Cart = () => {
                     </svg>
                   </div>
                   <div>
-                    <p className="text-sm text-blue-800">Please confirm your table number before placing the order. Your order will be prepared and served at your table.</p>
+                    <p className="text-sm text-blue-800">
+                      {!tableNumber 
+                        ? "Please log in and select a table before placing your order."
+                        : orderStatus.isServed
+                          ? "Your food has been served. Please process payment when ready."
+                          : currentOrderId
+                            ? "Your order is being prepared. You can add more items if needed."
+                            : "Your order will be prepared and served at your table."}
+                    </p>
                   </div>
                 </div>
               </motion.div>
