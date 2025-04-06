@@ -407,10 +407,11 @@ export const addItemsToOrder = async (orderId, cartItems) => {
       throw new Error('No items to add');
     }
 
-    // Format new items to match exactly what the backend expects
     const newDishItems = cartItems.map(item => ({
       "Dish Id": item.dish['Dish Id'],
-      "Quantity": item.quantity
+      "Quantity": item.quantity,
+      "Name": item.dish.Name,  // Add name for better display
+      "Price": item.dish.Price // Add price to track individual dish prices
     }));
     
     // Create update payload with just the dishes array
