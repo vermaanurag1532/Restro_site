@@ -38,10 +38,136 @@ const Cart = () => {
   const [tableNumber, setTableNumber] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [currentOrder, setCurrentOrderData] = useState(null);
-  const [hasInitialized, setHasInitialized] = useState(false);
   
   // Fixed: Using motion(Card) instead of motion.create(Card)
   const MotionCard = motion(Card);
+  
+  // Bill Details Component
+  const BillDetails = () => {
+    // Determine the amount to display - prioritize server data
+    const getDisplayAmount = () => {
+      if (currentOrder && typeof currentOrder.Amount === 'number') {
+        return currentOrder.Amount;
+      }
+      
+      if (cart.length > 0) {
+        return getTotal();
+      }
+      
+      return 0;
+    };
+
+    // Calculate cart total separate from current order
+    const cartTotal = cart.length > 0 ? getTotal() : 0;
+    
+    // Get the display amount for the bill
+    const displayAmount = getDisplayAmount();
+    
+    return (
+      <div className="space-y-3">
+        {/* Current Order Section */}
+        {currentOrder && (
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Current Order</span>
+              <span className="font-medium">₹{currentOrder.Amount}</span>
+            </div>
+          </>
+        )}
+        
+        {/* Cart Items Section - only show if there are items */}
+        {cart.length > 0 && (
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">New Items</span>
+            <span className="font-medium">₹{cartTotal}</span>
+          </div>
+        )}
+        
+        <div className="flex justify-between items-center">
+          <span className="text-gray-600">GST and Restaurant Charges</span>
+          <span className="font-medium">Included</span>
+        </div>
+
+        <Divider className="my-2" />
+        
+        <div className="flex justify-between items-center font-bold">
+          <span>To Pay</span>
+          <motion.span
+            key={displayAmount}
+            initial={{ scale: 1 }}
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 0.4 }}
+            className="text-lg text-primary"
+          >
+            ₹{currentOrder && cart.length > 0 
+              ? (currentOrder.Amount + cartTotal) 
+              : displayAmount}
+          </motion.span>
+        </div>
+      </div>
+    );
+  };
+
+  // Order Action Buttons Component
+  const OrderActionButtons = () => {
+    // Determine which button to show based on order state
+    if (cart.length === 0 && !currentOrderId) {
+      return null; // No actions needed for empty cart with no order
+    }
+    
+    if (orderStatus.isPaid) {
+      return (
+        <Button 
+          className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
+          onClick={() => router.push('/')}
+        >
+          ORDER MORE ITEMS
+        </Button>
+      );
+    }
+    
+    // Payment button - show when food is served and we have an order
+    if (currentOrderId && orderStatus.isServed && !orderStatus.isPaid) {
+      return (
+        <Button 
+          className="w-full py-6 font-bold text-base rounded-lg bg-green-600 text-white"
+          onClick={handleProcessPayment}
+          disabled={isProcessingPayment}
+          isLoading={isProcessingPayment}
+        >
+          PROCESS PAYMENT
+        </Button>
+      );
+    }
+    
+    // New order or add to order button - only show if cart has items
+    if (cart.length > 0) {
+      return (
+        <Button 
+          className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
+          onClick={handleAction}
+          disabled={isPlacingOrder || !tableNumber}
+          isLoading={isPlacingOrder}
+        >
+          {!currentOrderId ? "PLACE ORDER" : "ADD TO ORDER"}
+        </Button>
+      );
+    }
+    
+    // If we have an existing order but empty cart
+    if (currentOrderId && cart.length === 0) {
+      return (
+        <Button 
+          className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
+          onClick={() => router.push('/')}
+        >
+          ADD MORE ITEMS
+        </Button>
+      );
+    }
+
+    return null;
+  };
   
   // Calculate total
   useEffect(() => {
@@ -55,9 +181,6 @@ const Cart = () => {
     let isActive = true;
     let stopPolling = null;
     
-    // Prevent multiple initializations
-    if (hasInitialized) return;
-    
     const initializeCart = async () => {
       try {
         setIsLoading(true);
@@ -66,12 +189,11 @@ const Cart = () => {
         if (!customer) {
           if (isActive) {
             setIsLoading(false);
-            setHasInitialized(true);
           }
           return;
         }
         
-        // Get customer's table - only once
+        // Get customer's table
         try {
           const tables = await fetchTablesByCustomerId(customer['Customer Id']);
           if (tables && tables.length > 0 && isActive) {
@@ -81,82 +203,103 @@ const Cart = () => {
           console.error("Error fetching table:", tableError);
         }
         
-        // If we have a current order ID stored, fetch that specific order
+        // Handle order data initialization
         if (currentOrderId) {
           try {
+            // Get fresh order data from server
             const order = await fetchOrderById(currentOrderId);
+            
             if (order && !order['Payment Status'] && isActive) {
               setCurrentOrderData(order);
+              setOrderTotal(order.Amount);
               
-              // Check order status
-              const status = await checkOrderStatus(order['Order Id']);
-              if (isActive) {
-                updateOrderStatus({
-                  isServed: Boolean(status.isServed),
-                  isPaid: Boolean(status.isPaid)
-                });
-                
-                // Start polling for status changes
-                stopPolling = startOrderStatusPolling(
-                  order['Order Id'],
-                  (status) => {
-                    if (isActive) {
-                      updateOrderStatus({
-                        isServed: Boolean(status.isServed),
-                        isPaid: Boolean(status.isPaid)
-                      });
+              // Set current status from server data
+              updateOrderStatus({
+                isServed: Boolean(order['Serving Status']),
+                isPaid: Boolean(order['Payment Status'])
+              });
+              
+              // Start polling for status changes
+              stopPolling = startOrderStatusPolling(
+                order['Order Id'],
+                (statusData) => {
+                  if (isActive) {
+                    // Update order status
+                    updateOrderStatus({
+                      isServed: Boolean(statusData.isServed),
+                      isPaid: Boolean(statusData.isPaid)
+                    });
+                    
+                    // If we have full order details, update those too
+                    if (statusData.orderDetails) {
+                      setCurrentOrderData(statusData.orderDetails);
+                      setOrderTotal(statusData.orderDetails.Amount);
                     }
-                  },
-                  15000 // Check every 15 seconds
-                );
-              }
+                  }
+                },
+                15000 // Check every 15 seconds
+              );
+            } else if (order && order['Payment Status'] && isActive) {
+              // If the order is already paid, clear it
+              setCurrentOrder(null);
+              setCurrentOrderData(null);
             }
           } catch (error) {
             console.error("Error fetching stored order:", error);
-            // Clear invalid order ID
             if (isActive) setCurrentOrder(null);
           }
         } else {
-          // Check for existing unpaid orders if no current order is stored
+          // No current order ID - check for the latest unpaid order
           try {
             const latestOrder = await getLatestCustomerOrder(customer['Customer Id']);
+            
             if (latestOrder && !latestOrder['Payment Status'] && isActive) {
               setCurrentOrderData(latestOrder);
               setCurrentOrder(latestOrder['Order Id']);
+              setOrderTotal(latestOrder.Amount);
               
-              // Check status
-              const status = await checkOrderStatus(latestOrder['Order Id']);
-              if (isActive) {
-                updateOrderStatus({
-                  isServed: Boolean(status.isServed),
-                  isPaid: Boolean(status.isPaid)
-                });
-                
-                // Start polling for status changes
-                stopPolling = startOrderStatusPolling(
-                  latestOrder['Order Id'],
-                  (status) => {
-                    if (isActive) {
-                      updateOrderStatus({
-                        isServed: Boolean(status.isServed),
-                        isPaid: Boolean(status.isPaid)
-                      });
+              // Set order status
+              updateOrderStatus({
+                isServed: Boolean(latestOrder['Serving Status']),
+                isPaid: Boolean(latestOrder['Payment Status'])
+              });
+              
+              // Start polling for status updates
+              stopPolling = startOrderStatusPolling(
+                latestOrder['Order Id'],
+                (statusData) => {
+                  if (isActive) {
+                    // Update order status
+                    updateOrderStatus({
+                      isServed: Boolean(statusData.isServed),
+                      isPaid: Boolean(statusData.isPaid)
+                    });
+                    
+                    // If we have full order details, update those too
+                    if (statusData.orderDetails) {
+                      setCurrentOrderData(statusData.orderDetails);
+                      setOrderTotal(statusData.orderDetails.Amount);
                     }
-                  },
-                  15000 // Check every 15 seconds
-                );
-              }
+                  }
+                },
+                15000 // Check every 15 seconds
+              );
             }
           } catch (error) {
             console.error("Error fetching latest order:", error);
           }
         }
+        
+        // Calculate total from cart items
+        if (cart.length > 0) {
+          setOrderTotal(getTotal());
+        }
+        
       } catch (error) {
         console.error('Error initializing cart:', error);
       } finally {
         if (isActive) {
           setIsLoading(false);
-          setHasInitialized(true);
         }
       }
     };
@@ -167,7 +310,7 @@ const Cart = () => {
       isActive = false;
       if (stopPolling) stopPolling();
     };
-  }, [currentOrderId, setCurrentOrder, updateOrderStatus, hasInitialized]);
+  }, [currentOrderId, setCurrentOrder, updateOrderStatus, cart, getTotal]);
   
   // Handle placing a new order OR adding to existing order
   const handleAction = async () => {
@@ -200,47 +343,64 @@ const Cart = () => {
           );
           
           if (newOrder && newOrder['Order Id']) {
-            setCurrentOrderData(newOrder);
+            // Fetch the full order details to ensure accuracy
+            const freshOrder = await fetchOrderById(newOrder['Order Id']);
+            setCurrentOrderData(freshOrder);
             setCurrentOrder(newOrder['Order Id']);
+            setOrderTotal(freshOrder.Amount);
+            
             updateOrderStatus({
               isServed: false,
               isPaid: false
             });
+            
+            // Clear cart after successfully placing the order
+            clearCart();
+            
+            // Navigate to order confirmation
+            router.push(`/order-confirmation?id=${newOrder['Order Id']}`);
           } else {
             throw new Error("Failed to create order");
           }
         } catch (error) {
           console.error('Error placing new order:', error);
           setOrderError(error.message || 'Failed to place order. Please try again.');
-          setIsPlacingOrder(false);
-          return;
         }
       } 
       // If we have an existing order, add items to it
-      else {
+      else if (cart.length > 0) {
         try {
-          const updatedOrder = await addItemsToOrder(
-            currentOrderId,
-            cart
-          );
+          // Add items to existing order with simplified payload
+          await addItemsToOrder(currentOrderId, cart);
           
-          if (updatedOrder) {
-            setCurrentOrderData(updatedOrder);
+          // Always fetch fresh data from server after update
+          const refreshedOrder = await fetchOrderById(currentOrderId);
+          if (refreshedOrder) {
+            setCurrentOrderData(refreshedOrder);
+            setOrderTotal(refreshedOrder.Amount);
+            
             updateOrderStatus({
               ...orderStatus,
               isServed: false // Reset serving status when adding items
             });
             
-            // Clear cart after successfully adding items to the order
+            // Clear cart after successfully adding items
             clearCart();
-          } else {
-            throw new Error("Failed to update order");
+            
+            // Show success message using a temporary div
+            const successMessage = document.createElement('div');
+            successMessage.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+            successMessage.innerText = 'Items added to your order!';
+            document.body.appendChild(successMessage);
+            
+            // Remove the message after 3 seconds
+            setTimeout(() => {
+              successMessage.remove();
+            }, 3000);
           }
         } catch (error) {
           console.error('Error adding to existing order:', error);
           setOrderError(error.message || 'Failed to update order. Please try again.');
-          setIsPlacingOrder(false);
-          return;
         }
       }
       
@@ -439,6 +599,26 @@ const Cart = () => {
                       <span className="font-medium">₹{currentOrder.Amount || 0}</span>
                     </div>
                   </div>
+
+                  {/* Display current order items */}
+                  {currentOrder.Dishes && currentOrder.Dishes.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="font-medium mb-2">Order Items:</h3>
+                      <div className="space-y-2">
+                        {currentOrder.Dishes.map((dish, index) => (
+                          <div key={`${dish['Dish Id']}-${index}`} className="flex justify-between items-center text-sm border-b pb-2">
+                            <div className="flex items-center">
+                              <span className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center mr-2 text-xs">
+                                {dish.Quantity}
+                              </span>
+                              <span>{dish.Name || `Item ${index + 1}`}</span>
+                            </div>
+                            <span>₹{dish.Price * dish.Quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
               
@@ -485,7 +665,7 @@ const Cart = () => {
                           strokeLinejoin="round" 
                         />
                       </svg>
-                      <span className="font-bold">RedLinear Restro</span>
+                      <span className="font-bold">Current Cart</span>
                     </div>
                     <span className="text-sm text-gray-500">{cart.length} items</span>
                   </div>
@@ -576,100 +756,57 @@ const Cart = () => {
                   <h3 className="text-lg font-bold">Bill Details</h3>
                 </CardHeader>
                 <CardBody className="py-3">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Item Total</span>
-                      <span className="font-medium">₹{getTotal()}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">GST and Restaurant Charges</span>
-                      <span className="font-medium">Included</span>
-                    </div>
-
-                    <Divider className="my-2" />
-                    
-                    <div className="flex justify-between items-center font-bold">
-                      <span>To Pay</span>
-                      <motion.span
-                        key={orderTotal}
-                        initial={{ scale: 1 }}
-                        animate={{ scale: [1, 1.1, 1] }}
-                        transition={{ duration: 0.4 }}
-                        className="text-lg text-primary"
-                      >
-                        ₹{orderTotal}
-                      </motion.span>
-                    </div>
-                    
-                    <Divider className="my-2" />
-                    
-                    {/* Table Information - Not loading repeatedly now */}
-                    <div className="flex justify-between items-center mt-2">
-                      <span className="text-gray-600">Your Table</span>
-                      <span className="font-medium">
-                        {isLoading ? (
-                          <motion.div
-                            animate={{ 
-                              opacity: [0.5, 1, 0.5] 
-                            }}
-                            transition={{ repeat: Infinity, duration: 1.5 }}
-                            className="bg-gray-200 h-6 w-12 rounded"
-                          />
-                        ) : tableNumber ? (
-                          `Table ${tableNumber}`
-                        ) : (
-                          <span className="text-red-500">Not found</span>
-                        )}
-                      </span>
-                    </div>
-                    
-                    {/* Order Status Info */}
-                    {currentOrderId && currentOrder && (
-                      <div className="mt-2 p-2 bg-gray-50 rounded-lg">
-                        <div className="text-sm font-medium mb-1">Order Status</div>
-                        <div className="flex items-center space-x-2">
-                          <div className={`w-3 h-3 rounded-full ${orderStatus.isServed ? 'bg-green-500' : 'bg-amber-500'}`}></div>
-                          <span className="text-sm">{orderStatus.isServed ? 'Food Served' : 'Preparing'}</span>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {/* Order Error Message */}
-                    {orderError && (
-                      <motion.div 
-                        className="p-2 bg-red-50 border border-red-100 rounded text-red-600 text-sm"
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                      >
-                        {orderError}
-                      </motion.div>
-                    )}
+                  {/* Use the Bill Details Component */}
+                  <BillDetails />
+                  
+                  <Divider className="my-2" />
+                  
+                  {/* Table Information */}
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-gray-600">Your Table</span>
+                    <span className="font-medium">
+                      {isLoading ? (
+                        <motion.div
+                          animate={{ 
+                            opacity: [0.5, 1, 0.5] 
+                          }}
+                          transition={{ repeat: Infinity, duration: 1.5 }}
+                          className="bg-gray-200 h-6 w-12 rounded"
+                        />
+                      ) : tableNumber ? (
+                        `Table ${tableNumber}`
+                      ) : (
+                        <span className="text-red-500">Not found</span>
+                      )}
+                    </span>
                   </div>
-                </CardBody>
-                <CardFooter className="flex flex-col gap-2">
-                  {/* Main Action Button - for PLACE ORDER or ADD TO ORDER */}
-                  {cart.length > 0 && !orderStatus.isServed && (
-                    <Button 
-                      className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
-                      onClick={handleAction}
-                      disabled={isPlacingOrder || cart.length === 0 || isLoading || !tableNumber}
-                      isLoading={isPlacingOrder}
-                    >
-                      {!currentOrderId ? "PLACE ORDER" : "ADD TO ORDER"}
-                    </Button>
+                  
+                  {/* Order Status Info */}
+                  {currentOrderId && currentOrder && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded-lg">
+                      <div className="text-sm font-medium mb-1">Order Status</div>
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${orderStatus.isServed ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+                        <span className="text-sm">{orderStatus.isServed ? 'Food Served' : 'Preparing'}</span>
+                      </div>
+                    </div>
                   )}
                   
-                  {/* Payment Button - only shows when food is served */}
-                  {orderStatus.isServed && !orderStatus.isPaid && (
-                    <Button 
-                      className="w-full py-6 font-bold text-base rounded-lg bg-gray-800 text-white"
-                      onClick={handleProcessPayment}
-                      disabled={isProcessingPayment}
-                      isLoading={isProcessingPayment}
+                  {/* Order Error Message */}
+{/* Order Error Message */}
+{orderError && (
+                    <motion.div 
+                      className="p-2 bg-red-50 border border-red-100 rounded text-red-600 text-sm mt-2"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
                     >
-                      PROCESS PAYMENT
-                    </Button>
+                      {orderError}
+                    </motion.div>
                   )}
+                </CardBody>
+                <CardFooter className="flex flex-col gap-2">
+                  {/* Use Order Action Buttons Component */}
+                  <OrderActionButtons />
                 </CardFooter>
               </MotionCard>
               

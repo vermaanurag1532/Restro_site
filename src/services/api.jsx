@@ -400,75 +400,27 @@ export const getLatestCustomerOrder = async (customerId) => {
   }
 };
 
-// Add items to an existing order
-export const addItemsToOrder = async (orderId, newItems) => {
+// Add items to an existing order - improved version
+export const addItemsToOrder = async (orderId, cartItems) => {
   try {
-    if (!newItems || newItems.length === 0) {
+    if (!cartItems || cartItems.length === 0) {
       throw new Error('No items to add');
     }
 
-    // First get the current order
-    const order = await fetchOrderById(orderId);
-    
-    if (!order) {
-      throw new Error('Order not found');
-    }
-    
-    // Format new items
-    const newDishItems = newItems.map(item => ({
+    // Format new items to match exactly what the backend expects
+    const newDishItems = cartItems.map(item => ({
       "Dish Id": item.dish['Dish Id'],
-      "Quantity": item.quantity,
-      "Name": item.dish.Name,  // Add name for better display
-      "Price": item.dish.Price // Add price to track individual dish prices
+      "Quantity": item.quantity
     }));
     
-    // Ensure existing dishes is an array
-    let existingDishes = [];
-    try {
-      // Handle both string and array formats
-      if (typeof order.Dishes === 'string') {
-        existingDishes = JSON.parse(order.Dishes);
-      } else if (Array.isArray(order.Dishes)) {
-        existingDishes = order.Dishes;
-      }
-    } catch (e) {
-      console.error('Error parsing existing dishes:', e);
-    }
-    
-    // Merge dishes more intelligently - if dish already exists, add quantities
-    const updatedDishes = [...existingDishes];
-    
-    newDishItems.forEach(newItem => {
-      const existingItemIndex = updatedDishes.findIndex(item => item['Dish Id'] === newItem['Dish Id']);
-      
-      if (existingItemIndex >= 0) {
-        // Item exists, update quantity
-        updatedDishes[existingItemIndex].Quantity += newItem.Quantity;
-      } else {
-        // New item, add to array
-        updatedDishes.push(newItem);
-      }
-    });
-    
-    // Calculate additional amount from new dishes
-    const additionalAmount = newDishItems.reduce((total, item) => {
-      return total + (item.Price * item.Quantity);
-    }, 0);
-    
-    // Calculate new total amount
-    const newAmount = (order.Amount || 0) + additionalAmount;
-    
-    // Create a simplified update payload with only what needs to change
+    // Create update payload with just the dishes array
     const updatePayload = {
-      Dishes: updatedDishes,
-      Amount: newAmount,
-      "Serving Status": false // Reset serving status when adding items
+      Dishes: newDishItems
     };
     
-    console.log('Updating order with new items:', {
+    console.log('Adding items to order:', {
       orderId,
-      dishCount: updatedDishes.length,
-      amount: newAmount
+      dishes: newDishItems.length
     });
     
     const response = await api.put(`/Order/${orderId}`, updatePayload);
@@ -529,58 +481,88 @@ export const checkOrderStatus = async (orderId) => {
   }
 };
 
-// Poll for order status updates with debouncing
-let activePollingInterval = null;
-
+// Improved polling functionality
 export const startOrderStatusPolling = (orderId, callback, interval = 30000) => {
-  // Clear any existing polling for this or other orders
-  if (activePollingInterval) {
-    clearInterval(activePollingInterval);
-    activePollingInterval = null;
+  // Clear any existing polling
+  if (window._activePollingInterval) {
+    clearInterval(window._activePollingInterval);
+    window._activePollingInterval = null;
   }
   
   // Initial check
   checkOrderStatus(orderId)
-    .then(callback)
+    .then(async (statusData) => {
+      try {
+        // Get full order data for more details
+        const orderData = await fetchOrderById(orderId);
+        callback({
+          ...statusData,
+          orderDetails: orderData
+        });
+      } catch (err) {
+        callback(statusData);
+      }
+    })
     .catch(console.error);
   
   // Set up polling
-  activePollingInterval = setInterval(() => {
-    checkOrderStatus(orderId)
-      .then(status => {
-        callback(status);
-        
-        // If order is paid or served, slow down polling
-        if (status.isPaid) {
-          // Stop polling completely if paid
-          clearInterval(activePollingInterval);
-          activePollingInterval = null;
-        } else if (status.isServed && interval < 60000) {
-          // Slow down polling to once a minute when served
-          clearInterval(activePollingInterval);
-          activePollingInterval = setInterval(() => {
-            checkOrderStatus(orderId)
-              .then(callback)
-              .catch(err => {
-                console.error('Error in slower polling cycle:', err);
-                clearInterval(activePollingInterval);
-                activePollingInterval = null;
+  window._activePollingInterval = setInterval(async () => {
+    try {
+      // First, check order status
+      const statusData = await checkOrderStatus(orderId);
+      
+      // Then get full order data for more details
+      const orderData = await fetchOrderById(orderId);
+      
+      // Combine status with order data for a complete update
+      const combinedData = {
+        ...statusData,
+        orderDetails: orderData
+      };
+      
+      callback(combinedData);
+      
+      // If order is paid, stop polling
+      if (statusData.isPaid) {
+        clearInterval(window._activePollingInterval);
+        window._activePollingInterval = null;
+      }
+      // If order is served but not paid, slow down polling
+      else if (statusData.isServed && interval < 60000) {
+        clearInterval(window._activePollingInterval);
+        window._activePollingInterval = setInterval(() => {
+          checkOrderStatus(orderId)
+            .then(async (updatedStatus) => {
+              const updatedOrder = await fetchOrderById(orderId);
+              callback({
+                ...updatedStatus,
+                orderDetails: updatedOrder
               });
-          }, 60000);
-        }
-      })
-      .catch(err => {
-        console.error('Error polling order status:', err);
-        clearInterval(activePollingInterval);
-        activePollingInterval = null;
-      });
+              
+              if (updatedStatus.isPaid) {
+                clearInterval(window._activePollingInterval);
+                window._activePollingInterval = null;
+              }
+            })
+            .catch(err => {
+              console.error('Error in slower polling cycle:', err);
+              clearInterval(window._activePollingInterval);
+              window._activePollingInterval = null;
+            });
+        }, 60000); // Poll once per minute when served
+      }
+    } catch (err) {
+      console.error('Error polling order status:', err);
+      clearInterval(window._activePollingInterval);
+      window._activePollingInterval = null;
+    }
   }, interval);
   
   // Return function to stop polling
   return () => {
-    if (activePollingInterval) {
-      clearInterval(activePollingInterval);
-      activePollingInterval = null;
+    if (window._activePollingInterval) {
+      clearInterval(window._activePollingInterval);
+      window._activePollingInterval = null;
     }
   };
 };
