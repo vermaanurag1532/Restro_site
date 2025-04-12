@@ -168,7 +168,7 @@ const Home = () => {
   }, [searchQuery, selectedCategory, dishes]);
 
   const isInCart = (dishId) => {
-    return cart.some(item => item.dish['Dish Id'] === dishId);
+    return cart.some(item => item.dish['DishId'] === dishId);
   };
 
   // Group dishes by category
@@ -181,7 +181,7 @@ const Home = () => {
           if (!grouped[type]) {
             grouped[type] = [];
           }
-          if (!grouped[type].some(d => d['Dish Id'] === dish['Dish Id'])) {
+          if (!grouped[type].some(d => d['DishId'] === dish['DishId'])) {
             grouped[type].push(dish);
           }
         });
@@ -590,7 +590,7 @@ const Home = () => {
                     >
                       {dishes.map((dish, dishIndex) => (
                         <motion.div
-                          key={dish['Dish Id']}
+                          key={dish['DishId']}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ duration: 0.3, delay: dishIndex * 0.05 }}
@@ -631,7 +631,7 @@ const Home = () => {
                                       addToCart(dish);
                                     }}
                                   >
-                                    {isInCart(dish['Dish Id']) ? 'ADDED' : 'ADD'}
+                                    {isInCart(dish['DishId']) ? 'ADDED' : 'ADD'}
                                   </button>
                                 </motion.div>
                               </div>

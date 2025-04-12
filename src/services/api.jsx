@@ -2,7 +2,7 @@ import axios from 'axios';
 import Cookies from 'js-cookie';
 
 // Prioritize environment variable, fallback to HTTPS
-const API_URL = '/api';
+const API_URL = 'http://localhost:3000/';
 
 // Create axios instance with enhanced configuration
 const api = axios.create({
@@ -266,7 +266,7 @@ export const placeOrderFromCart = async (cartItems, tableNo, customerId) => {
 
     // Format dishes for the API with additional properties for better tracking
     const dishes = cartItems.map(item => ({
-      "Dish Id": item.dish['Dish Id'],
+      "DishId": item.dish['DishId'],
       "Quantity": item.quantity,
       "Name": item.dish.Name,  // Add name for better display
       "Price": item.dish.Price // Add price to track individual dish prices
@@ -408,7 +408,7 @@ export const addItemsToOrder = async (orderId, cartItems) => {
     }
 
     const newDishItems = cartItems.map(item => ({
-      "Dish Id": item.dish['Dish Id'],
+      "DishId": item.dish['DishId'],
       "Quantity": item.quantity,
       "Name": item.dish.Name,  // Add name for better display
       "Price": item.dish.Price // Add price to track individual dish prices

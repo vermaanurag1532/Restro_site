@@ -606,7 +606,7 @@ const Cart = () => {
                       <h3 className="font-medium mb-2">Order Items:</h3>
                       <div className="space-y-2">
                         {currentOrder.Dishes.map((dish, index) => (
-                          <div key={`${dish['Dish Id']}-${index}`} className="flex justify-between items-center text-sm border-b pb-2">
+                          <div key={`${dish['DishId']}-${index}`} className="flex justify-between items-center text-sm border-b pb-2">
                             <div className="flex items-center">
                               <span className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center mr-2 text-xs">
                                 {dish.Quantity}
@@ -673,7 +673,7 @@ const Cart = () => {
                   <AnimatePresence>
                     {cart.map((item, index) => (
                       <motion.div 
-                        key={item.dish['Dish Id']} 
+                        key={item.dish['DishId']} 
                         className="py-3 border-b border-dashed border-gray-200 last:border-none"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -710,7 +710,7 @@ const Cart = () => {
                             <motion.button 
                               className="px-2 py-1 text-gray-500"
                               whileTap={{ scale: 0.9 }}
-                              onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity - 1)}
+                              onClick={() => updateQuantity(item.dish['DishId'], item.quantity - 1)}
                               disabled={item.quantity <= 1}
                             >
                               <MinusIcon />
@@ -719,7 +719,7 @@ const Cart = () => {
                             <motion.button 
                               className="px-2 py-1 text-gray-700"
                               whileTap={{ scale: 0.9 }}
-                              onClick={() => updateQuantity(item.dish['Dish Id'], item.quantity + 1)}
+                              onClick={() => updateQuantity(item.dish['DishId'], item.quantity + 1)}
                             >
                               <PlusIcon />
                             </motion.button>
@@ -728,7 +728,7 @@ const Cart = () => {
                             className="text-sm text-red-500 font-medium"
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
-                            onClick={() => removeFromCart(item.dish['Dish Id'])}
+                            onClick={() => removeFromCart(item.dish['DishId'])}
                           >
                             Remove
                           </motion.button>

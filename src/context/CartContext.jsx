@@ -47,12 +47,12 @@ export const CartProvider = ({ children }) => {
 
   const addToCart = (dish, quantity = 1) => {
     setCart(prevCart => {
-      const existingItem = prevCart.find(item => item.dish['Dish Id'] === dish['Dish Id']);
+      const existingItem = prevCart.find(item => item.dish['DishId'] === dish['DishId']);
       let newCart;
       
       if (existingItem) {
         newCart = prevCart.map(item => 
-          item.dish['Dish Id'] === dish['Dish Id'] 
+          item.dish['DishId'] === dish['DishId'] 
             ? { ...item, quantity: item.quantity + quantity } 
             : item
         );
@@ -68,7 +68,7 @@ export const CartProvider = ({ children }) => {
 
   const removeFromCart = (dishId) => {
     setCart(prevCart => {
-      const newCart = prevCart.filter(item => item.dish['Dish Id'] !== dishId);
+      const newCart = prevCart.filter(item => item.dish['DishId'] !== dishId);
       Cookies.set('cart', JSON.stringify(newCart), { expires: 7 });
       console.log("Updated cart cookie after removal");
       return newCart;
@@ -83,7 +83,7 @@ export const CartProvider = ({ children }) => {
     
     setCart(prevCart => {
       const newCart = prevCart.map(item => 
-        item.dish['Dish Id'] === dishId ? { ...item, quantity } : item
+        item.dish['DishId'] === dishId ? { ...item, quantity } : item
       );
       Cookies.set('cart', JSON.stringify(newCart), { expires: 7 });
       console.log("Updated cart quantity");

@@ -118,7 +118,7 @@ const Orders = () => {
                       <div className="space-y-2">
                         {order.Dishes.map((dish, index) => (
                           <div key={index} className="flex justify-between">
-                            <span>{dish['Dish Id']} × {dish.Quantity}</span>
+                            <span>{dish['DishId']} × {dish.Quantity}</span>
                           </div>
                         ))}
                       </div>
