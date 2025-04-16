@@ -413,39 +413,41 @@ const Cart = () => {
   };
   
   // Handle payment processing
-  const handleProcessPayment = async () => {
-    try {
-      setOrderError('');
-      
-      if (!currentOrderId) {
-        setOrderError('No active order found');
-        return;
-      }
-      
-      setIsProcessingPayment(true);
-      
-      // Call the fixed processPayment function that only updates payment status
-      await processPayment(currentOrderId);
-      
-      // Update order status to paid
-      updateOrderStatus({
-        ...orderStatus,
-        isPaid: true
-      });
-      
-      // Clear cart after successful payment
-      clearCart();
-      
-      // Navigate to payment confirmation
-      router.push(`/payment-confirmation?id=${currentOrderId}`);
-      
-    } catch (error) {
-      console.error('Error processing payment:', error);
-      setOrderError(error.message || 'Failed to process payment. Please try again.');
-    } finally {
-      setIsProcessingPayment(false);
+// Handle payment processing
+const handleProcessPayment = async () => {
+  try {
+    setOrderError('');
+    
+    if (!currentOrderId) {
+      setOrderError('No active order found');
+      return;
     }
-  };
+    
+    setIsProcessingPayment(true);
+    
+    // Call the processPayment function that now also clears table data
+    await processPayment(currentOrderId);
+    
+    // Update order status to paid
+    updateOrderStatus({
+      ...orderStatus,
+      isPaid: true
+    });
+    
+    // Clear cart and current order after successful payment
+    clearCart();
+    setCurrentOrder(null);
+    
+    // Navigate to payment confirmation
+    router.push(`/payment-confirmation?id=${currentOrderId}`);
+    
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    setOrderError(error.message || 'Failed to process payment. Please try again.');
+  } finally {
+    setIsProcessingPayment(false);
+  }
+};
 
   return (
     <Layout title="Cart">

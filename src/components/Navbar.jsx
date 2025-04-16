@@ -1,3 +1,4 @@
+// Enhanced logout handling in Navbar.jsx
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
@@ -9,11 +10,13 @@ import {
   Link, 
   Button,
   Badge,
-  NavbarMenuToggle
+  NavbarMenuToggle,
+  Loading
 } from "@nextui-org/react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCartIcon, UserIcon, HomeIcon, ClockIcon } from './Icons';
 import { useCart } from '../context/CartContext';
+import { logout as apiLogout, fetchTablesByCustomerId } from '../services/api'; // Import the API functions
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -22,6 +25,7 @@ const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Handle scroll effect
   useEffect(() => {
@@ -50,6 +54,66 @@ const Navbar = () => {
       document.body.style.overflow = 'unset';
     };
   }, [isMenuOpen]);
+
+  // Enhanced logout function that clears tables first
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      
+      if (user) {
+        const customerId = user['Customer Id'];
+        
+        if (customerId) {
+          console.log('Starting logout process for customer:', customerId);
+          
+          try {
+            // First fetch all tables associated with this customer
+            const tables = await fetchTablesByCustomerId(customerId);
+            console.log('Tables associated with customer:', tables);
+            
+            // If there are tables, we need to clear them one by one
+            if (tables && tables.length > 0) {
+              for (const table of tables) {
+                const tableNo = table['Table No'];
+                console.log(`Clearing customer from table ${tableNo}`);
+                
+                try {
+                  // Make a direct fetch request to update the table
+                  // This bypasses any issues with the API helper functions
+                  const response = await fetch(`http://localhost:3000/Table/${tableNo}`, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      "Customer ID": null,
+                      "Order Id": null
+                    })
+                  });
+                  
+                  const result = await response.json();
+                  console.log(`Table update result:`, result);
+                } catch (tableError) {
+                  console.error(`Failed to clear table ${tableNo}:`, tableError);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error clearing tables during logout:', error);
+          }
+        }
+      }
+      
+      // Now call the regular logout function from AuthContext
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force logout anyway
+      logout();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   const navbarClass = `w-full z-50 transition-all duration-300 ${
     scrolled ? 'bg-white shadow-md' : 'bg-white'
@@ -253,17 +317,20 @@ const Navbar = () => {
                 <Button 
                   color="danger" 
                   variant="light" 
-                  onClick={logout}
+                  onClick={handleLogout}
                   size="sm"
+                  isLoading={isLoggingOut}
                   startContent={
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                      <polyline points="16 17 21 12 16 7"></polyline>
-                      <line x1="21" y1="12" x2="9" y2="12"></line>
-                    </svg>
+                    !isLoggingOut && (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                      </svg>
+                    )
                   }
                 >
-                  Logout
+                  {isLoggingOut ? 'Logging out...' : 'Logout'}
                 </Button>
               </motion.div>
             </NavbarItem>
@@ -333,15 +400,18 @@ const Navbar = () => {
                       isIconOnly
                       color="danger" 
                       variant="light" 
-                      onClick={logout}
+                      onClick={handleLogout}
                       size="sm"
+                      isLoading={isLoggingOut}
                       className="min-w-0 w-10 h-10 rounded-full"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                        <polyline points="16 17 21 12 16 7"></polyline>
-                        <line x1="21" y1="12" x2="9" y2="12"></line>
-                      </svg>
+                      {!isLoggingOut && (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                          <polyline points="16 17 21 12 16 7"></polyline>
+                          <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                      )}
                     </Button>
                   </motion.div>
                 </NavbarItem>
@@ -479,20 +549,23 @@ const Navbar = () => {
                     <Button 
                       color="danger" 
                       variant="flat" 
-                      onClick={() => {
-                        logout();
+                      onClick={async () => {
                         setIsMenuOpen(false);
+                        await handleLogout();
                       }}
                       className="w-full rounded-xl"
-                      startContent={(
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                          <polyline points="16 17 21 12 16 7"></polyline>
-                          <line x1="21" y1="12" x2="9" y2="12"></line>
-                        </svg>
-                      )}
+                      isLoading={isLoggingOut}
+                      startContent={
+                        !isLoggingOut && (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                          </svg>
+                        )
+                      }
                     >
-                      Logout
+                      {isLoggingOut ? 'Logging out...' : 'Logout'}
                     </Button>
                   </motion.div>
                 </div>

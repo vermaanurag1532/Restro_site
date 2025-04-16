@@ -2,7 +2,7 @@ import axios from 'axios';
 import Cookies from 'js-cookie';
 
 // Prioritize environment variable, fallback to HTTPS
-const API_URL = '/api';
+const API_URL = 'http://localhost:3000/';
 
 // Create axios instance with enhanced configuration
 const api = axios.create({
@@ -73,32 +73,57 @@ export const login = async (email, password) => {
   }
 };
 
+// Updated logout function for api.jsx
+// 1. First, update the api.jsx logout function:
+
+// Enhanced logout function for api.jsx - client side only
 export const logout = async () => {
   try {
     // Get the current customer
     const customer = getCurrentCustomer();
     
     if (customer) {
-      // Find tables associated with this customer
-      const tables = await fetchTablesByCustomerId(customer['Customer Id']);
+      const customerId = customer['Customer Id'];
       
-      // Clear customer assignment from tables
-      for (const table of tables) {
+      if (customerId) {
+        console.log('Logging out customer:', customerId);
+        
         try {
-          await updateTable(table['Table No'], null);
-        } catch (error) {
-          console.error(`Failed to clear table ${table['Table No']}:`, error);
+          // 1. Fetch tables associated with this customer
+          const tables = await fetchTablesByCustomerId(customerId);
+          console.log('Tables to clear:', tables);
+          
+          // 2. Clear customer ID from each table
+          if (tables && tables.length > 0) {
+            // Process tables one by one
+            for (const table of tables) {
+              try {
+                const tableNo = table['Table No'];
+                
+                // Important: Use a direct request with the exact format the backend expects
+                const response = await axios.put(`${API_URL}/Table/${tableNo}`, {
+                  "Customer ID": null,
+                  "Order Id": null
+                }, {
+                  headers: {
+                    'Content-Type': 'application/json'
+                  }
+                });
+                
+                console.log(`Table ${tableNo} update response:`, response.data);
+              } catch (tableError) {
+                console.error(`Failed to clear table ${table['Table No']}:`, tableError);
+              }
+            }
+          }
+        } catch (tablesError) {
+          console.error('Error fetching tables:', tablesError);
         }
       }
     }
     
-    // Remove the customer cookie
-    Cookies.remove('customer', { 
-      secure: process.env.NODE_ENV === 'production', 
-      sameSite: 'strict' 
-    });
-    
-    // Clear current order info
+    // Remove all cookies
+    Cookies.remove('customer');
     Cookies.remove('currentOrderId');
     Cookies.remove('orderStatus');
     Cookies.remove('cart');
@@ -106,12 +131,32 @@ export const logout = async () => {
     return true;
   } catch (error) {
     console.error('Error during logout:', error);
-    // Still remove the cookie even if clearing tables fails
+    // Still remove cookies
     Cookies.remove('customer');
     Cookies.remove('currentOrderId');
     Cookies.remove('orderStatus');
     Cookies.remove('cart');
     return true;
+  }
+};
+
+// 2. Also update the updateTable function to fix any issues there:
+
+export const updateTable = async (tableNo, customerId) => {
+  try {
+    // Ensure proper field names for the backend API
+    const updateData = {
+      "Customer ID": customerId // Use exact field name from database
+    };
+    
+    console.log(`Updating table ${tableNo} with:`, updateData);
+    
+    const response = await api.put(`/Table/${tableNo}`, updateData);
+    console.log('Table update response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating table:', error);
+    throw error;
   }
 };
 
@@ -158,6 +203,21 @@ export const fetchAllTables = async () => {
   }
 };
 
+// New function to fetch only available tables (tables with no customer assigned)
+export const fetchAvailableTables = async () => {
+  try {
+    const allTables = await fetchAllTables();
+    // Filter tables that have no customer assigned (Customer ID is null, empty, or 0)
+    const availableTables = allTables.filter(table => 
+      !table['Customer ID'] || table['Customer ID'] === '' || table['Customer ID'] === 0
+    );
+    return availableTables;
+  } catch (error) {
+    console.error('Error fetching available tables:', error);
+    throw error;
+  }
+};
+
 export const fetchTableById = async (tableNo) => {
   try {
     const response = await api.get(`/Table/${tableNo}`);
@@ -185,14 +245,6 @@ export const createTable = async (tableNo, customerId) => {
   }
 };
 
-export const updateTable = async (tableNo, customerId) => {
-  try {
-    const response = await api.put(`/Table/${tableNo}`, { customerId });
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
-};
 
 export const deleteTable = async (tableNo) => {
   try {
@@ -433,6 +485,7 @@ export const addItemsToOrder = async (orderId, cartItems) => {
 };
 
 // Process payment for an order
+// Process payment for an order
 export const processPayment = async (orderId) => {
   try {
     const order = await fetchOrderById(orderId);
@@ -452,7 +505,26 @@ export const processPayment = async (orderId) => {
     
     console.log('Processing payment for order:', orderId);
     
+    // Update the order status
     const response = await api.put(`/Order/${orderId}`, updatedOrder);
+    
+    // Clear the table data (remove order ID and customer ID)
+    try {
+      const tableNo = order['Table No'];
+      if (tableNo) {
+        console.log(`Clearing table ${tableNo} after payment`);
+        
+        // Update table to remove customer and order association
+        await api.put(`/Table/${tableNo}`, {
+          "Customer ID": null,
+          "Order Id": null
+        });
+      }
+    } catch (tableError) {
+      console.error('Error clearing table data:', tableError);
+      // Still return the order response even if table update fails
+    }
+    
     return response.data;
   } catch (error) {
     console.error('Payment processing error:', error);
