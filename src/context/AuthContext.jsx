@@ -4,7 +4,7 @@ import Cookies from 'js-cookie';
 import axios from 'axios';
 
 // API URL constant
-const API_URL = 'http://localhost:3000';
+const API_URL = '/api';
 
 const AuthContext = createContext();
 
