@@ -613,7 +613,7 @@ const Home = () => {
                               <div className="relative min-w-[100px] w-[100px] h-[100px]">
                                 <img 
                                   src={dish.Images && dish.Images.length > 0 
-                                    ? `https://via.placeholder.com/100?text=${encodeURIComponent(dish.Name)}`
+                                    ? dish.Images[0]
                                     : "/test.jpg"
                                   } 
                                   alt={dish.Name}
