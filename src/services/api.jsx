@@ -2,7 +2,7 @@ import axios from 'axios';
 import Cookies from 'js-cookie';
 
 // Prioritize environment variable, fallback to HTTPS
-const API_URL = 'http://localhost:3000/';
+const API_URL = '/api';
 
 // Create axios instance with enhanced configuration
 const api = axios.create({
