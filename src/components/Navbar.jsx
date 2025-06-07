@@ -80,7 +80,7 @@ const Navbar = () => {
                 try {
                   // Make a direct fetch request to update the table
                   // This bypasses any issues with the API helper functions
-                  const response = await fetch(`http://localhost:3000/Table/${tableNo}`, {
+                  const response = await fetch(`/api/Table/${tableNo}`, {
                     method: 'PUT',
                     headers: {
                       'Content-Type': 'application/json'

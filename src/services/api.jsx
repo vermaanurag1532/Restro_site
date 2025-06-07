@@ -640,4 +640,78 @@ export const startOrderStatusPolling = (orderId, callback, interval = 30000) => 
   };
 };
 
+export const submitFeedback = async (feedbackData) => {
+  try {
+    const { orderId, customerId, feedback } = feedbackData;
+    
+    if (!orderId || !customerId || !feedback || !feedback.trim()) {
+      throw new Error('Missing required feedback data');
+    }
+
+    const payload = {
+      "feedback": feedback.trim(),
+      "orderId": orderId,
+      "customerId": customerId
+    };
+
+    console.log('Submitting feedback payload:', payload);
+    
+    const response = await api.post('/feedback', payload);
+    return response.data;
+  } catch (error) {
+    console.error('Error submitting feedback:', error);
+    throw error;
+  }
+};
+
+export const fetchFeedbackByOrderId = async (orderId) => {
+  try {
+    const response = await api.get(`/feedback/order/${orderId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching feedback by order ID:', error);
+    throw error;
+  }
+};
+
+export const fetchFeedbackByCustomerId = async (customerId) => {
+  try {
+    const response = await api.get(`/feedback/customer/${customerId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching feedback by customer ID:', error);
+    throw error;
+  }
+};
+
+export const fetchAllFeedback = async () => {
+  try {
+    const response = await api.get('/feedback');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching all feedback:', error);
+    throw error;
+  }
+};
+
+export const updateFeedback = async (feedbackId, feedbackData) => {
+  try {
+    const response = await api.put(`/feedback/${feedbackId}`, feedbackData);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating feedback:', error);
+    throw error;
+  }
+};
+
+export const deleteFeedback = async (feedbackId) => {
+  try {
+    const response = await api.delete(`/feedback/${feedbackId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting feedback:', error);
+    throw error;
+  }
+};
+
 export default api;

@@ -17,7 +17,7 @@ const Orders = () => {
       if (!user) return;
       
       try {
-        const response = await axios.get(`http://localhost:3000/Order/customer/${user['Customer Id']}`);
+        const response = await axios.get(`/api/Order/customer/${user['Customer Id']}`);
         setOrders(response.data);
       } catch (error) {
         setError('Failed to load orders');
