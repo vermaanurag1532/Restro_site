@@ -469,7 +469,7 @@ const PaymentConfirmation = () => {
                           Rate Your Overall Experience
                         </h3>
                         <p className="text-gray-600 mb-8">
-                          Your rating helps us understand how we're doing
+                          Your rating helps us understand how we&apos;re doing
                         </p>
                         
                         <div className="flex justify-center items-center gap-3 mb-6">
