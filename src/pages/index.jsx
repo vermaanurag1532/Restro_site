@@ -219,7 +219,7 @@ const Home = () => {
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5 }}
             >
-              <img src="/test.jpg" alt="Logo" className="w-20 h-20 rounded-full object-cover" />
+              <img src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1000&auto=format&fit=crop" alt="Logo" className="w-20 h-20 rounded-full object-cover" />
             </motion.div>
           </div>
           <Spinner size="lg" color="primary" />
@@ -424,7 +424,7 @@ const Home = () => {
       {/* Custom Navbar */}
       <div className="custom-navbar py-3 px-4 flex items-center justify-between mb-2">
         <div className="flex items-center">
-          <img src="/test.jpg" alt="Restaurant Logo" className="w-10 h-10 rounded-full object-cover mr-3" />
+          <img src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1000&auto=format&fit=crop" alt="Restaurant Logo" className="w-10 h-10 rounded-full object-cover mr-3" />
           <div>
             <h1 className="text-lg font-bold">RedLinear Restro</h1>
             <p className="text-xs text-gray-500">Delicious food Menu</p>
@@ -612,10 +612,7 @@ const Home = () => {
                               </div>
                               <div className="relative min-w-[100px] w-[100px] h-[100px]">
                                 <img 
-                                  src={dish.Images && dish.Images.length > 0 
-                                    ? dish.Images[0]
-                                    : "/test.jpg"
-                                  } 
+                                  src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=1000&auto=format&fit=crop"
                                   alt={dish.Name}
                                   className="w-full h-full object-cover rounded-lg"
                                 />
